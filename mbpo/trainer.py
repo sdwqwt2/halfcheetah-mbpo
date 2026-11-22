@@ -106,9 +106,12 @@ class MBPOTrainer:
         starting from `rollout_batch_size` states sampled from the real buffer."""
         obs = self.env_buffer.sample(self.cfg.rollout_batch_size)["obs"]
         rewards: List[torch.Tensor] = []
+        epistemic, aleatoric = [], []
         for _ in range(k):
             act, _ = self.agent.actor(obs, with_log_prob=False)
-            next_obs, rew = self.model.step(obs, act)
+            next_obs, rew, unc = self.model.step(obs, act, return_stats=True)
+            epistemic.append(unc["epistemic_std"])
+            aleatoric.append(unc["aleatoric_std"])
             done = termination_fn(self.cfg.env_id, obs, act, next_obs)
             self.model_buffer.add_batch({"obs": obs, "act": act, "rew": rew,
                                          "next_obs": next_obs, "done": done})
@@ -118,7 +121,9 @@ class MBPOTrainer:
                 break
             obs = next_obs[alive]
         r = torch.cat(rewards)
-        return {"rollout_reward_mean": r.mean().item(), "model_buffer_size": len(self.model_buffer)}
+        return {"rollout_reward_mean": r.mean().item(), "model_buffer_size": len(self.model_buffer),
+                "rollout_epistemic_std": torch.stack(epistemic).mean().item(),
+                "rollout_aleatoric_std": torch.stack(aleatoric).mean().item()}
 
     def sample_batch(self) -> Dict[str, torch.Tensor]:
         bs = self.cfg.batch_size
@@ -130,8 +135,10 @@ class MBPOTrainer:
 
     def save(self, name: str) -> str:
         path = os.path.join(self.cfg.out_dir, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         ckpt = {"agent": self.agent.state_dict(), "config": self.cfg.to_dict(),
-                "obs_dim": self.obs_dim, "act_dim": self.act_dim}
+                "obs_dim": self.obs_dim, "act_dim": self.act_dim,
+                "env_steps": self.total_steps}
         if self.model is not None:
             ckpt["model"] = self.model.state_dict()
             ckpt["model_scaler"] = (self.model.scaler.mu.cpu(), self.model.scaler.std.cpu())
@@ -149,7 +156,7 @@ class MBPOTrainer:
         n_updates, model_stats, rollout_stats, sac_info = 0, {}, {}, {}
         k = rollout_length(cfg, 0)
         n_epochs = int(np.ceil(cfg.total_env_steps / cfg.epoch_length))
-        total_steps = 0
+        total_steps = self.total_steps = 0
         stop_reason = "finished"
 
         print(f"[{cfg.algo}] {cfg.env_id} seed={cfg.seed} device={self.device} "
@@ -184,6 +191,7 @@ class MBPOTrainer:
                 ep_ret += reward
                 ep_len += 1
                 total_steps += 1
+                self.total_steps = total_steps
                 if terminated or truncated:
                     last_train_return = ep_ret
                     obs, _ = self.env.reset()
@@ -206,7 +214,7 @@ class MBPOTrainer:
                           seed=10_000 + cfg.seed + epoch, env=self.eval_env)
             elapsed = time.time() - t_start
             row = {"epoch": epoch + 1, "env_steps": total_steps, "eval_return": ev["return_mean"],
-                   "train_return": last_train_return, "updates": n_updates,
+                   "eval_return_std": ev["return_std"], "train_return": last_train_return, "updates": n_updates,
                    "rollout_length": k if cfg.use_model else 0,
                    "time_min": elapsed / 60, "epoch_time_s": time.time() - t_epoch}
             row.update(sac_info)
@@ -230,6 +238,8 @@ class MBPOTrainer:
                 self.save("best.pt")
             if (epoch + 1) % cfg.save_every_epochs == 0:
                 self.save("latest.pt")
+            if cfg.snapshot_every_steps and total_steps % cfg.snapshot_every_steps == 0:
+                self.save(os.path.join("snapshots", f"step_{total_steps:06d}.pt"))
 
             if total_steps >= cfg.total_env_steps:
                 break
@@ -241,6 +251,9 @@ class MBPOTrainer:
 
         self.save("final.pt")
         self.logger.close()
+        if cfg.save_replay_buffer:
+            real = {k_: v.cpu().numpy() for k_, v in self.env_buffer.all().items()}
+            np.savez_compressed(os.path.join(cfg.out_dir, "env_buffer.npz"), **real)
 
         # ---- final, more careful evaluation of the last and the best policy ----
         final_eval = {}

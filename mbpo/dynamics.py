@@ -172,15 +172,25 @@ class ProbabilisticEnsemble(nn.Module):
 
     # ---------------------------------------------------------------------
     @torch.no_grad()
-    def step(self, obs: torch.Tensor, act: torch.Tensor, deterministic: bool = False):
-        """Sample (next_obs, reward) for a batch, each row from a random elite member."""
+    def step(self, obs: torch.Tensor, act: torch.Tensor, deterministic: bool = False,
+             return_stats: bool = False):
+        """Sample (next_obs, reward) for a batch, each row from a random elite member.
+        With `return_stats`, also returns the two kinds of model uncertainty:
+          epistemic = std of the elite means across members (members disagree: too little data),
+          aleatoric = mean predicted std (noise the model believes is in the environment)."""
         mean, logvar = self._predict_all(obs, act)                        # (E, B, out)
         sample = mean if deterministic else mean + torch.randn_like(mean) * (0.5 * logvar).exp()
         elites = torch.as_tensor(self.elites, device=obs.device)
         member = elites[torch.randint(len(self.elites), (obs.shape[0],), device=obs.device)]
         chosen = sample[member, torch.arange(obs.shape[0], device=obs.device)]  # (B, out)
         reward, next_obs = chosen[:, 0], obs + chosen[:, 1:]
-        return next_obs, reward
+        if not return_stats:
+            return next_obs, reward
+        elite_mean, elite_logvar = mean[elites], logvar[elites]
+        stats = {"epistemic_std": elite_mean.std(0).mean() if len(self.elites) > 1
+                 else torch.zeros((), device=obs.device),
+                 "aleatoric_std": (0.5 * elite_logvar).exp().mean()}
+        return next_obs, reward, stats
 
     @torch.no_grad()
     def evaluate_mse(self, data: Dict[str, torch.Tensor]) -> float:

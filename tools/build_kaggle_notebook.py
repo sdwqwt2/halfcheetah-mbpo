@@ -71,8 +71,21 @@ import os
 TRAIN_HOURS = 11.0          # wall-clock budget per run; Kaggle kills a session at 12 h
 TOTAL_ENV_STEPS = 400_000   # paper budget for HalfCheetah; the time budget usually stops us first
 UPDATES_PER_STEP = 20       # G: SAC gradient steps per env step (paper: 40; 20 to fit in 12 h)
-MBPO_SEEDS = [0, 1]         # one run per GPU
-RUN_SAC_BASELINE = True     # model-free SAC with the same env-step budget
+
+# The run plan. Each entry is one training process. Optional keys:
+#   steps=...  env-step budget for this run (default TOTAL_ENV_STEPS)
+#   hours=...  time budget for this run (default TRAIN_HOURS)
+#   set={...}  overrides of any field in mbpo/config.py  <- tuning / ablations go here
+# Name runs "<group>_seed<N>": plots average all seeds of a group.
+RUNS = [
+    dict(name="mbpo_seed0", algo="mbpo", seed=0, gpu=0),
+    dict(name="mbpo_seed1", algo="mbpo", seed=1, gpu=1),
+    dict(name="sac_seed0",  algo="sac",  seed=0, gpu=0),   # cheap model-free baseline
+]
+# Ablation examples (for a separate session, see docs/EXPERIMENTS.md):
+#   dict(name="mbpo_k5_seed0", algo="mbpo", seed=0, gpu=0, steps=60_000, set={"rollout_schedule": [0, 1, 5, 5]})
+#   dict(name="mbpo_ens1_seed0", algo="mbpo", seed=0, gpu=1, steps=60_000, set={"ensemble_size": 1, "num_elites": 1})
+
 SMOKE_TEST = os.environ.get("MBPO_SMOKE_TEST") == "1"  # set True for a ~3-minute dry run only
 WORK_DIR = "/kaggle/working" if os.path.isdir("/kaggle/working") else os.getcwd()
 os.chdir(WORK_DIR)
@@ -158,32 +171,34 @@ Every run is a separate process (`train.py`), pinned to one GPU with `CUDA_VISIB
 Progress is logged once per epoch (= 1000 env steps) to `runs/<run>/progress.csv`, TensorBoard
 (`runs/<run>/tb`) and `runs/<run>/stdout.log`; this cell prints a status line every 15 minutes.
 Each run stops by itself when `TRAIN_HOURS` is used up, saves `best.pt` / `final.pt`, and evaluates
-both policies on 10 episodes (`summary.json`).
+both policies on 10 episodes (`summary.json`). For later analysis it also keeps
+`snapshots/step_XXXXXX.pt` every 25k env steps (policy, critics and dynamics model) and all real
+transitions in `env_buffer.npz`.
 """
 
 TRAIN = r"""
 import subprocess, sys, time, os, json
 
-def launch(algo, seed, gpu):
-    out = f"runs/{algo}_seed{seed}"
+def launch(run):
+    out = f"runs/{run['name']}"
     os.makedirs(out, exist_ok=True)
-    cmd = [sys.executable, "train.py", "--algo", algo, "--seed", str(seed), "--out-dir", out,
-           "--time-budget-hours", str(TRAIN_HOURS)]
+    cmd = [sys.executable, "train.py", "--algo", run["algo"], "--seed", str(run["seed"]),
+           "--out-dir", out, "--time-budget-hours", str(run.get("hours", TRAIN_HOURS))]
     if SMOKE_TEST:
         cmd += ["--smoke"]
     else:
-        cmd += ["--total-env-steps", str(TOTAL_ENV_STEPS)]
-        if algo == "mbpo":
+        cmd += ["--total-env-steps", str(run.get("steps", TOTAL_ENV_STEPS))]
+        if run["algo"] == "mbpo":
             cmd += ["--updates-per-step", str(UPDATES_PER_STEP)]
+    for key, value in run.get("set", {}).items():
+        cmd += ["--set", f"{key}={json.dumps(value)}"]
+    gpu = run.get("gpu", 0) % max(N_GPU, 1)
     env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu) if N_GPU else ""}
     log = open(f"{out}/stdout.log", "w")
-    print(f"launch {out} on GPU {gpu if N_GPU else 'none (CPU)'}")
+    print(f"launch {out} on GPU {gpu if N_GPU else 'none (CPU)'}: {' '.join(cmd[1:])}")
     return out, subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env)
 
-plan = [("mbpo", s, i % max(N_GPU, 1)) for i, s in enumerate(MBPO_SEEDS)]
-if RUN_SAC_BASELINE:
-    plan.append(("sac", 0, 0))
-procs = [launch(*p) for p in plan]
+procs = [launch(run) for run in RUNS]
 
 def last_epoch_line(out):
     try:
@@ -213,8 +228,9 @@ for out, p in procs:
 
 RESULTS_MD = r"""
 ## Results
-Learning curves (evaluation return of the deterministic policy after every 1000 env steps, smoothed over
-5 epochs; shaded band = min-max over seeds), the dynamics-model error, and the final table.
+Learning curves (mean evaluation return of the deterministic policy over 5 episodes after every 1000 env
+steps, smoothed over 5 epochs; shaded band = min-max over seeds), return vs wall-clock hours, the
+dynamics-model error and uncertainty, and the final table.
 """
 
 PLOTS = r"""
@@ -222,7 +238,7 @@ import subprocess, sys
 from IPython.display import Image, display
 print(subprocess.run([sys.executable, "plot_results.py", "--runs", "runs", "--out", "results"],
                      capture_output=True, text=True).stdout)
-for name in ["learning_curves.png", "model_loss.png"]:
+for name in ["learning_curves.png", "wall_clock.png", "model_loss.png", "model_uncertainty.png"]:
     if os.path.exists(f"results/{name}"):
         display(Image(f"results/{name}"))
 """
@@ -233,7 +249,7 @@ import glob, json, base64
 from IPython.display import HTML, display
 
 best = None
-for s_path in glob.glob("runs/mbpo_seed*/summary.json"):
+for s_path in glob.glob("runs/mbpo_seed*/summary.json"):  # main MBPO runs only
     s = json.load(open(s_path))
     for which in ("best", "final"):
         score = s[f"{which}_policy_return"]
@@ -245,6 +261,11 @@ if best:
 sac_ckpt = "runs/sac_seed0/best.pt"
 if os.path.exists(sac_ckpt):
     record(["--checkpoint", sac_ckpt, "--out", "videos/sac_baseline.mp4"])
+# "learning progress" clips from the snapshots of the best MBPO run (25k, 100k, ... env steps)
+if best:
+    snaps = sorted(glob.glob(os.path.join(os.path.dirname(best[1]), "snapshots", "step_*.pt")))
+    for snap in [s for s in snaps if int(s[-9:-3]) in (25_000, 50_000, 100_000, 200_000, 300_000)][:5]:
+        record(["--checkpoint", snap, "--out", f"videos/progress_{os.path.basename(snap)[:-3]}.mp4"])
 
 for v in ["videos/random_policy.mp4", "videos/mbpo_trained.mp4"]:
     if os.path.exists(v):

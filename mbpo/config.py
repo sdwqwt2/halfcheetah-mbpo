@@ -66,10 +66,12 @@ class Config:
     real_ratio: float = 0.05            # fraction of real data in each SAC batch
 
     # ---- evaluation / logging --------------------------------------------
-    eval_episodes: int = 1              # deterministic eval episodes per epoch
+    eval_episodes: int = 5              # deterministic eval episodes per epoch (paper: 1)
     final_eval_episodes: int = 10
     log_every_updates: int = 1_000      # how often to pull SAC stats to the CPU
-    save_every_epochs: int = 10
+    save_every_epochs: int = 10         # overwrite latest.pt
+    snapshot_every_steps: int = 25_000  # keep snapshots/step_XXXXXX.pt (policy, critic, model)
+    save_replay_buffer: bool = True     # env_buffer.npz with all real transitions, for analysis
     tensorboard: bool = True
 
     # ---------------------------------------------------------------------
@@ -123,6 +125,7 @@ def smoke_config(algo: str = "mbpo", **overrides) -> Config:
         final_eval_episodes=2,
         log_every_updates=100,
         save_every_epochs=2,
+        snapshot_every_steps=1_000,
     )
     small.update(overrides)
     return make(**small)
