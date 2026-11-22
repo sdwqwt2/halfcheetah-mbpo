@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+venv/
+runs/
+kaggle_run/
+*.mp4
+results.zip
+.DS_Store
+.idea/
+MUJOCO_LOG.TXT
