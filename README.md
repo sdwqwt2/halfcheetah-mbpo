@@ -5,12 +5,6 @@ Gymnasium's MuJoCo `HalfCheetah-v5`, with a model-free **SAC** baseline from the
 
 Team: Azamat Kharisov, Alexander Kurilenko, Egor Novokreshchenov, Ivan Prikhodko, Maxim Izyumov.
 
-## Training on Kaggle
-
-`notebooks/MBPO_HalfCheetah_Kaggle.ipynb` is self-contained: it writes every source file to disk
-(`%%writefile` cells), trains two MBPO seeds and the SAC baseline on GPU T4 x2 (internet enabled), plots the learning
-curves, evaluates the final policies on 10 episodes, records videos, and bundles everything into `mbpo_results.zip`.
-
 ## Worked example
 
 `notebooks/MBPO_Walkthrough.ipynb` runs on a CPU and shows, with printed numbers:
