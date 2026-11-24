@@ -11,7 +11,7 @@ md(r"""
 # MBPO, one update at a time — a small worked example (Group 18)
 
 This notebook shows **how MBPO updates its model, its value function and its policy**, on an example small
-enough that every number can be printed and checked by hand. It runs on a CPU in about a minute and needs only
+enough that every number can be printed and checked by hand. It runs on a CPU and needs only
 `numpy`, `torch` and `matplotlib`.
 
 The full-scale implementation (HalfCheetah-v5, 7-member ensemble, 256-unit SAC, GPU) is in the `mbpo/` package
@@ -487,8 +487,7 @@ real step feeds many SAC updates on model-generated data.
 
 ## 6. Results on HalfCheetah-v5
 
-The full-scale run (`notebooks/MBPO_HalfCheetah_Kaggle.ipynb`, Kaggle GPU T4 x2) writes its plots to `results/`.
-If they are present next to this notebook they are shown below.
+Plots of the full-scale run (`notebooks/MBPO_HalfCheetah_Kaggle.ipynb`).
 """)
 
 code(r"""
@@ -501,7 +500,7 @@ for folder in ["results", "../results"]:
         if os.path.exists(path):
             display(Image(path)); shown = True
 if not shown:
-    print("No HalfCheetah results found yet - run the Kaggle notebook and put its results/ folder next to this notebook.")
+    print("No HalfCheetah results found.")
 """)
 
 nb = {"cells": cells, "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},

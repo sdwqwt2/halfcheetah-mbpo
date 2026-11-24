@@ -4,7 +4,7 @@ Examples
 --------
     python train.py --algo mbpo --seed 0 --out-dir runs/mbpo_seed0 --time-budget-hours 11
     python train.py --algo sac  --seed 0 --out-dir runs/sac_seed0
-    python train.py --algo mbpo --smoke                     # 1-minute sanity check
+    python train.py --algo mbpo --smoke                     # quick sanity check
     python train.py --algo mbpo --set rollout_schedule=[20,100,1,5] --set ensemble_size=5
 """
 import argparse
@@ -47,7 +47,7 @@ def main():
         overrides[key] = value
 
     cfg = smoke_config(args.algo, **overrides) if args.smoke else PRESETS[args.algo](**overrides)
-    torch.set_num_threads(1)  # several runs share a few CPU cores on Kaggle
+    torch.set_num_threads(1)  # limit CPU threads per process
     MBPOTrainer(cfg).train()
 
 

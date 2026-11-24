@@ -2,9 +2,7 @@
 
 Defaults follow the official MBPO HalfCheetah configuration
 (Janner et al., 2019, `examples/config/halfcheetah.py`) unless a comment says
-otherwise. The main deliberate deviation is `updates_per_step` (G): the paper
-uses 40 SAC updates per environment step; we default to 20 so that a run fits
-in a single 12-hour Kaggle session.
+otherwise. The main difference is `updates_per_step` (G): 20 here, 40 in the paper.
 """
 from __future__ import annotations
 
@@ -110,7 +108,7 @@ def sac_config(**overrides) -> Config:
 
 
 def smoke_config(algo: str = "mbpo", **overrides) -> Config:
-    """Tiny settings for a quick end-to-end check (runs in ~1 minute on CPU)."""
+    """Tiny settings for a quick end-to-end check."""
     make = mbpo_config if algo == "mbpo" else sac_config
     small = dict(
         total_env_steps=3_000,

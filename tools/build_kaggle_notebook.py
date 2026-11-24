@@ -1,8 +1,7 @@
 """Generate notebooks/MBPO_HalfCheetah_Kaggle.ipynb from the source files.
 
 The notebook is fully self-contained: every module of the `mbpo` package is
-written to disk by a readable `%%writefile` cell, so on Kaggle you only upload
-the .ipynb and press "Run All". Re-run this script after editing any .py file:
+written to disk by a `%%writefile` cell. Run after editing any .py file:
 
     python tools/build_kaggle_notebook.py
 """
@@ -43,50 +42,38 @@ INTRO = r"""
 
 Team: Azamat Kharisov, Alexander Kurilenko, Egor Novokreshchenov, Ivan Prikhodko, Maxim Izyumov.
 
-### How to run on Kaggle
-1. *Settings → Accelerator →* **GPU T4 x2**, and *Settings → Internet →* **On** (needed for `pip install`).
-2. Click **Save Version → Save & Run All (Commit)**. The commit runs in the background for up to 12 h,
-   even with the browser closed, and keeps everything written to `/kaggle/working`.
-3. When it finishes, open the version's **Output** tab and download `mbpo_results.zip`
-   (learning curves, logs, TensorBoard files, checkpoints, videos).
+Hardware: Kaggle, GPU T4 x2.
 
 ### What this notebook does
-| step | what | time |
-|---|---|---|
-| 1 | install `gymnasium[mujoco]`, check GPUs | ~2 min |
-| 2 | write the `mbpo` package to disk (`%%writefile` cells below) | instant |
-| 3 | check MuJoCo off-screen rendering, record a *random-policy* video | ~1 min |
-| 4 | 1-minute smoke test of the full pipeline (fails fast if anything is broken) | ~2 min |
-| 5 | **train**: MBPO seed 0 on GPU 0, MBPO seed 1 on GPU 1, SAC baseline on GPU 0 | `TRAIN_HOURS` |
-| 6 | plots, final evaluation table, video of the trained cheetah, zip of all results | ~5 min |
-
-The two GPUs are used to run **two MBPO seeds in parallel** (MBPO is a sequential algorithm, so one run
-cannot use two GPUs efficiently); the cheap model-free SAC baseline shares GPU 0 and shows the
-sample-efficiency gain.
+| step | what |
+|---|---|
+| 1 | install `gymnasium[mujoco]`, check GPUs |
+| 2 | write the `mbpo` package to disk (`%%writefile` cells below) |
+| 3 | check MuJoCo off-screen rendering, record a *random-policy* video |
+| 4 | smoke test of the full pipeline |
+| 5 | **train**: MBPO seeds 0 and 1, and the model-free SAC baseline |
+| 6 | plots, final evaluation table, videos, zip of all results |
 """
 
 SETTINGS = r"""
 # ================= settings =================
 import os
-TRAIN_HOURS = 11.0          # wall-clock budget per run; Kaggle kills a session at 12 h
-TOTAL_ENV_STEPS = 400_000   # paper budget for HalfCheetah; the time budget usually stops us first
-UPDATES_PER_STEP = 20       # G: SAC gradient steps per env step (paper: 40; 20 to fit in 12 h)
+TRAIN_HOURS = 11.0          # wall-clock budget per run
+TOTAL_ENV_STEPS = 400_000   # paper budget for HalfCheetah
+UPDATES_PER_STEP = 20       # G: SAC gradient steps per env step (paper: 40)
 
-# The run plan. Each entry is one training process. Optional keys:
+# Each entry is one training process. Optional keys:
 #   steps=...  env-step budget for this run (default TOTAL_ENV_STEPS)
 #   hours=...  time budget for this run (default TRAIN_HOURS)
-#   set={...}  overrides of any field in mbpo/config.py  <- tuning / ablations go here
+#   set={...}  overrides of any field in mbpo/config.py
 # Name runs "<group>_seed<N>": plots average all seeds of a group.
 RUNS = [
     dict(name="mbpo_seed0", algo="mbpo", seed=0, gpu=0),
     dict(name="mbpo_seed1", algo="mbpo", seed=1, gpu=1),
-    dict(name="sac_seed0",  algo="sac",  seed=0, gpu=0),   # cheap model-free baseline
+    dict(name="sac_seed0",  algo="sac",  seed=0, gpu=0),   # model-free baseline
 ]
-# Ablation examples (for a separate session, see docs/EXPERIMENTS.md):
-#   dict(name="mbpo_k5_seed0", algo="mbpo", seed=0, gpu=0, steps=60_000, set={"rollout_schedule": [0, 1, 5, 5]})
-#   dict(name="mbpo_ens1_seed0", algo="mbpo", seed=0, gpu=1, steps=60_000, set={"ensemble_size": 1, "num_elites": 1})
 
-SMOKE_TEST = os.environ.get("MBPO_SMOKE_TEST") == "1"  # set True for a ~3-minute dry run only
+SMOKE_TEST = os.environ.get("MBPO_SMOKE_TEST") == "1"  # short dry run of the pipeline
 WORK_DIR = "/kaggle/working" if os.path.isdir("/kaggle/working") else os.getcwd()
 os.chdir(WORK_DIR)
 print("working directory:", WORK_DIR, "| smoke test only:", SMOKE_TEST)
@@ -104,13 +91,12 @@ N_GPU = torch.cuda.device_count()
 for i in range(N_GPU):
     print(f"GPU {i}: {torch.cuda.get_device_name(i)}")
 if N_GPU == 0:
-    print("WARNING: no GPU found - enable 'GPU T4 x2' in the notebook settings (training on CPU is far too slow).")
+    print("WARNING: no GPU found")
 """
 
 PKG_MD = r"""
 ## The implementation
-Each cell below writes one source file. The same files live in our repository; the notebook just
-bundles them so that Kaggle needs nothing but this `.ipynb`.
+Each cell below writes one source file of the repository.
 """
 
 RENDER = r"""
@@ -154,14 +140,14 @@ record(["--random", "--out", "videos/random_policy.mp4"])   # "before training" 
 """
 
 SMOKE = r"""
-# Fast end-to-end check of the whole pipeline before spending hours on the real run.
+# Fast end-to-end check of the whole pipeline.
 import subprocess, sys
 r = subprocess.run([sys.executable, "train.py", "--algo", "mbpo", "--smoke", "--out-dir", "smoke/mbpo"],
                    capture_output=True, text=True)
 print("\n".join(l for l in r.stdout.splitlines() if l.startswith("[")))
 if r.returncode != 0:
     print(r.stderr[-3000:])
-    raise RuntimeError("smoke test failed - fix this before launching the long run")
+    raise RuntimeError("smoke test failed")
 print("smoke test passed")
 """
 
@@ -171,7 +157,7 @@ Every run is a separate process (`train.py`), pinned to one GPU with `CUDA_VISIB
 Progress is logged once per epoch (= 1000 env steps) to `runs/<run>/progress.csv`, TensorBoard
 (`runs/<run>/tb`) and `runs/<run>/stdout.log`; this cell prints a status line every 15 minutes.
 Each run stops by itself when `TRAIN_HOURS` is used up, saves `best.pt` / `final.pt`, and evaluates
-both policies on 10 episodes (`summary.json`). For later analysis it also keeps
+both policies on 10 episodes (`summary.json`). It also keeps
 `snapshots/step_XXXXXX.pt` every 25k env steps (policy, critics and dynamics model) and all real
 transitions in `env_buffer.npz`.
 """
@@ -274,7 +260,7 @@ for v in ["videos/random_policy.mp4", "videos/mbpo_trained.mp4"]:
 """
 
 ZIP = r"""
-# Bundle everything for download (Output tab -> mbpo_results.zip).
+# Bundle all results into mbpo_results.zip.
 import shutil, tempfile
 staging = tempfile.mkdtemp()
 for d in ["runs", "results", "videos"]:
