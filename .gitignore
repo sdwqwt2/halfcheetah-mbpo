@@ -6,6 +6,7 @@ venv/
 runs/
 kaggle_run/
 *.mp4
+!videos/*.mp4
 results.zip
 .DS_Store
 .idea/
