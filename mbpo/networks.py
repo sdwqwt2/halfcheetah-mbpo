@@ -62,7 +62,7 @@ class TwinQ(nn.Module):
 
 
 class SquashedGaussianActor(nn.Module):
-    """pi(a|s) = tanh(N(mu(s), sigma(s)^2)), the standard SAC policy."""
+    """Gaussian policy with tanh-squashed actions."""
 
     LOG_STD_MIN, LOG_STD_MAX = -20.0, 2.0
 
@@ -83,7 +83,7 @@ class SquashedGaussianActor(nn.Module):
         a = torch.tanh(u)
         if not with_log_prob:
             return a, None
-        # log N(u; mu, std) - sum log(1 - tanh(u)^2), written in a stable form
+        # Compute the log probability with a stable tanh Jacobian correction.
         log_prob = (-0.5 * ((u - mu) / std) ** 2 - log_std - 0.5 * math.log(2 * math.pi)).sum(-1)
         log_prob = log_prob - (2.0 * (math.log(2.0) - u - F.softplus(-2.0 * u))).sum(-1)
         return a, log_prob

@@ -1,17 +1,4 @@
-"""Probabilistic ensemble dynamics model p_theta(s', r | s, a) used by MBPO.
-
-Each of the E members is an MLP that outputs a diagonal Gaussian over
-y = [r, s' - s] (reward and state *difference*). Members are trained by
-maximum likelihood on bootstrapped copies of the real data, with a held-out
-set for early stopping and for choosing the `num_elites` best members.
-This mirrors the PETS/MBPO model (Chua et al., 2018; Janner et al., 2019).
-
-Loss for one member (Gaussian negative log-likelihood, constants dropped):
-
-    L = mean_{batch, dims} [ (mu - y)^2 * exp(-logvar) + logvar ]
-        + 0.01 * (sum(max_logvar) - sum(min_logvar))      # keep variance bounds tight
-        + sum_l  wd_l * ||W_l||^2 / 2                     # per-layer weight decay
-"""
+"""Bootstrapped dynamics ensemble that predicts rewards and state changes."""
 from __future__ import annotations
 
 import time

@@ -1,13 +1,4 @@
-"""Soft Actor-Critic (Haarnoja et al., 2018), the policy optimiser inside MBPO.
-
-One call to `update(batch)` performs one gradient step on each of
-
-  critic:  L_Q  = E[(Q_i(s,a) - y)^2],   y = r + gamma (1-d) [min_j Q'_j(s',a') - alpha log pi(a'|s')],  a' ~ pi(.|s')
-  actor:   L_pi = E[alpha log pi(a~|s) - min_j Q_j(s,a~)],                                                a~ ~ pi(.|s)
-  alpha:   L_a  = E[-log_alpha (log pi(a~|s) + H_target)]
-
-followed by a Polyak update of the target critic: Q' <- tau Q + (1-tau) Q'.
-"""
+"""Soft Actor-Critic with automatic entropy tuning."""
 from __future__ import annotations
 
 import copy
@@ -52,7 +43,6 @@ class SAC:
     def alpha(self) -> torch.Tensor:
         return self.log_alpha.exp()
 
-    # ---------------------------------------------------------------------
     @torch.no_grad()
     def act(self, obs: np.ndarray, deterministic: bool = False) -> np.ndarray:
         o = torch.as_tensor(obs, dtype=torch.float32, device=self.device)
@@ -66,7 +56,7 @@ class SAC:
         next_obs, done = batch["next_obs"], batch["done"]
         alpha = self.alpha.detach()
 
-        # ---- critic ------------------------------------------------------
+        # Critic update
         with torch.no_grad():
             next_a, next_logp = self.actor(next_obs)
             q_next = self.critic_target(next_obs, next_a).min(0).values
@@ -77,7 +67,7 @@ class SAC:
         critic_loss.backward()
         self.critic_opt.step()
 
-        # ---- actor -------------------------------------------------------
+        # Actor update
         for p in self._critic_params:
             p.requires_grad_(False)
         new_a, logp = self.actor(obs)
@@ -89,13 +79,13 @@ class SAC:
         for p in self._critic_params:
             p.requires_grad_(True)
 
-        # ---- temperature -------------------------------------------------
+        # Temperature update
         alpha_loss = -(self.log_alpha * (logp.detach() + self.target_entropy)).mean()
         self.alpha_opt.zero_grad(set_to_none=True)
         alpha_loss.backward()
         self.alpha_opt.step()
 
-        # ---- target network ----------------------------------------------
+        # Target critic update
         with torch.no_grad():
             torch._foreach_mul_(self._target_params, 1.0 - self.tau)
             torch._foreach_add_(self._target_params, self._critic_params, alpha=self.tau)
@@ -106,7 +96,6 @@ class SAC:
                     "entropy": -logp.detach().mean(), "q_mean": q.detach().mean()}
         return None
 
-    # ---------------------------------------------------------------------
     def state_dict(self):
         return {"actor": self.actor.state_dict(), "critic": self.critic.state_dict(),
                 "critic_target": self.critic_target.state_dict(),

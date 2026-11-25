@@ -1,16 +1,4 @@
-"""The MBPO training loop (Janner et al., 2019, Algorithm 2).
-
-    for each epoch:
-        every `model_train_freq` env steps:
-            train the dynamics ensemble on D_env                    (step 1)
-            branch k-step rollouts from real states, add to D_model (step 3)
-        act in the real environment with pi, add to D_env           (step 2)
-        G times: SAC update on a batch of 5% D_env + 95% D_model    (step 4)
-        evaluate the deterministic policy
-
-With `algo="sac"` the model parts are skipped and every batch comes from D_env,
-which gives the model-free SAC baseline from the same code.
-"""
+"""Training loop shared by MBPO and the model-free SAC baseline."""
 from __future__ import annotations
 
 import json
@@ -171,7 +159,7 @@ class MBPOTrainer:
                     self.model_buffer.resize(self._model_buffer_capacity(k))
 
             for _ in range(cfg.epoch_length):
-                # (1)+(3) train the model and refresh the model buffer
+                # Train the model and refresh the model buffer.
                 if (cfg.use_model and total_steps >= cfg.init_random_steps
                         and total_steps % cfg.model_train_freq == 0):
                     model_stats = self.model.train_model(
@@ -179,7 +167,6 @@ class MBPOTrainer:
                         cfg.model_max_holdout, cfg.model_patience, cfg.model_max_epochs)
                     rollout_stats = self.rollout_model(k)
 
-                # (2) interact with the real environment
                 if total_steps < cfg.init_random_steps:
                     action = self.env.action_space.sample()
                 else:
@@ -197,7 +184,6 @@ class MBPOTrainer:
                     obs, _ = self.env.reset()
                     ep_ret, ep_len = 0.0, 0
 
-                # (4) policy optimisation
                 if total_steps >= cfg.init_random_steps:
                     for _ in range(cfg.updates_per_step):
                         n_updates += 1
