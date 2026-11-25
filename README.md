@@ -31,6 +31,7 @@ notebooks/
   ablations.ipynb                 ablation training runs (k = 5, k = 15, single model)
   MBPO_Ablation_Analysis.ipynb    ablation returns, model error by horizon, critic calibration
 videos/             random policy, SAC, trained MBPO, and training progress clips
+results/            learning curves of the main run
 results_ablation/   figures and table produced by MBPO_Ablation_Analysis.ipynb
 ```
 

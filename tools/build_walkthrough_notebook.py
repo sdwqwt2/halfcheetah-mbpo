@@ -482,7 +482,7 @@ ax.legend(frameon=False); plt.tight_layout(); plt.show()
 """)
 
 md(r"""
-With the same real experience, MBPO reaches the good policy (push forward, return ≈ 220) much sooner, because each
+With the same real experience, MBPO reaches the good policy (push forward, return about 205–210) much sooner, because each
 real step feeds many SAC updates on model-generated data.
 
 ## 6. Results on HalfCheetah-v5
