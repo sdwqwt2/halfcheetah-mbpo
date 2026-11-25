@@ -381,7 +381,7 @@ print(f"\nPolyak: output bias of the target critic  {w_bar:+.6f} -> {q1_targ.net
 
 md(r"""
 That is one complete MBPO policy-optimisation step. In the HalfCheetah run this happens
-**20 times per real environment step**, on batches of 256 transitions (13 real + 243 model-generated) —
+**20 times per real environment step**, on batches of 256 transitions (12 real + 244 model-generated) —
 that reuse of model data is where MBPO's sample efficiency comes from.
 
 ## 5. The whole loop on the toy problem
